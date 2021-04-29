@@ -1,7 +1,10 @@
 import streamlit as st
 import pydicom
 import numpy as np
-from matplotlib import pyplot as plt
+import matplotlib
+from matplotlib.figure import Figure
+from matplotlib import patches
+# from matplotlib import pyplot as plt
 import skimage
 import skimage.feature
 import skimage.transform
@@ -96,16 +99,17 @@ def transform_phantom(centers, phantom, pixel_spacing):
 
 def plot_circles(img, circle_data, radii=None):
     mats = {0: "Al", 1: "PMMA"}
-    fig, ax = plt.subplots()
+    fig = Figure()
+    ax = fig.add_subplot()
     ax.imshow(img)
     for i in range(circle_data.shape[0]):
         ax.plot(circle_data[i, 0], circle_data[i, 1], color='C0', marker='o', linestyle=None)
         if radii is not None:
             for radius in radii:
-                ax.add_patch(plt.Circle(circle_data[i, :2], radius=radius, facecolor='none', edgecolor='b'))
+                ax.add_patch(patches.Circle(circle_data[i, :2], radius=radius, facecolor='none', edgecolor='b'))
         if circle_data.shape[1] >= 4:
             ax.text(circle_data[i, 0], circle_data[i, 1] - 5,
-                    f"{circle_data[i, 2]:.2f} {mats[circle_data[i, 3]]}", size=14)
+                    f"{circle_data[i, 2]:.2f} {mats[circle_data[i, 3]]}")
     return fig
 
 
@@ -144,7 +148,8 @@ def cnr(img, inner, outer, nlabels):
 
 
 if __name__ == '__main__':
-    plt.rcParams["image.cmap"] = "Greys_r"
+    matplotlib.use("SVG")
+    matplotlib.rcParams["image.cmap"] = "Greys_r"
     high_data = st.sidebar.file_uploader("High energy image file", type=["dcm", "DCM"])
     low_data = st.sidebar.file_uploader("Low energy image file", type=["dcm", "DCM"])
     verbose = st.sidebar.checkbox("Verbose")
@@ -204,7 +209,8 @@ if __name__ == '__main__':
             img_masks = high_img.copy()
             img_masks[inner_labels > 0] *= 1.1
             img_masks[outer_labels > 0] *= 1.1
-            fig, ax = plt.subplots()
+            fig = Figure()
+            ax = fig.add_subplot()
             ax.imshow(img_masks)
             st.pyplot(fig)
         assert(trphantom[PMMA_MID_INDEX, 2] == 6.0)
@@ -221,11 +227,13 @@ if __name__ == '__main__':
         pmmaimg = low_img / high_img ** w_pmma
 
         st.header("DE Images")
-        fig, ax = plt.subplots()
+        fig = Figure()
+        ax = fig.add_subplot()
         ax.imshow(pmmaimg)
         ax.set_title("PMMA subtracted image")
         st.pyplot(fig)
-        fig, ax = plt.subplots()
+        fig = Figure()
+        ax = fig.add_subplot()
         ax.imshow(alimg)
         ax.set_title("Al subtracted image")
         st.pyplot(fig)
@@ -243,9 +251,10 @@ if __name__ == '__main__':
         pmma_feature_inds = trphantom[:, 3] == 1
         al_feature_inds = trphantom[:, 3] == 0
 
-        fig, ax = plt.subplots()
+        fig = Figure()
+        ax = fig.add_subplot()
         ax2 = ax.twinx()
-        ax.set_title("CNR / \sqrt{X} in PMMA subtracted image")
+        ax.set_title("CNR / √X in PMMA subtracted image")
         ax.plot(feature_inds[pmma_feature_inds], pmmaimg_cnr[pmma_feature_inds], color='b')
         ax.set_xlabel("Feature Index")
         ax.set_ylabel("PMMA Feature Contrast", color='b')
@@ -253,9 +262,10 @@ if __name__ == '__main__':
         ax2.set_ylabel("Al Feature Contrast", color='g')
         st.pyplot(fig)
 
-        fig, ax = plt.subplots()
+        fig = Figure()
+        ax = fig.add_subplot()
         ax2 = ax.twinx()
-        ax.set_title("CNR / \sqrt{X} in Al subtracted image")
+        ax.set_title("CNR / √X in Al subtracted image")
         ax.plot(feature_inds[pmma_feature_inds], alimg_cnr[pmma_feature_inds], color='b')
         ax.set_xlabel("Feature Index")
         ax.set_ylabel("PMMA Feature Contrast", color='b')
