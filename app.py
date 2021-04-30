@@ -134,7 +134,7 @@ def get_labels(imgshape, circle_data, r1, r2, r3):
 @st.cache
 def get_w(hi, li, minner, mouter):
     #return np.log(np.mean(hi[mouter]) / np.mean(hi[minner])) / np.log(np.mean(li[mouter]) / np.mean(li[minner]))
-    return np.log(np.mean(li[minner]) / np.mean(li[mouter])) / np.log(np.mean(hi[minner]) / np.mean(hi[mouter]))
+    return np.log(np.mean(hi[minner]) / np.mean(hi[mouter])) / np.log(np.mean(li[minner]) / np.mean(li[mouter]))
 
 
 @st.cache
@@ -221,11 +221,11 @@ if __name__ == '__main__':
         w_al = get_w(high_img, low_img,
                      inner_labels == PMMA_MID_INDEX + 1,
                      outer_labels == PMMA_MID_INDEX + 1)
-        alimg = low_img / high_img ** w_al
+        alimg = high_img / low_img ** w_al
         w_pmma = get_w(high_img, low_img,
                        inner_labels == AL_MID_INDEX + 1,
                        outer_labels == AL_MID_INDEX + 1)
-        pmmaimg = low_img / high_img ** w_pmma
+        pmmaimg = high_img / low_img ** w_pmma
 
         st.header("DE Images")
         fig = Figure()
