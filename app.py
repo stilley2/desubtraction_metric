@@ -273,3 +273,5 @@ if __name__ == '__main__':
         ax2.plot(feature_inds[al_feature_inds], alimg_cnr[al_feature_inds], color='g')
         ax2.set_ylabel("Al Feature Contrast", color='g')
         st.pyplot(fig)
+    st.markdown("Find source code on [github](https://github.com/stilley2/desubtraction_metric)")
+    st.text("© 2021, Steven Tilley")
