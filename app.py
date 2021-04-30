@@ -148,6 +148,8 @@ def cnr(img, inner, outer, nlabels):
 
 
 if __name__ == '__main__':
+    st.set_page_config(page_title="DE Subtraction", page_icon="🔬")
+    st.title("IEC 62220-2 Metric Evaluation")
     matplotlib.use("SVG")
     matplotlib.rcParams["image.cmap"] = "Greys_r"
     high_data = st.sidebar.file_uploader("High energy image file", type=["dcm", "DCM"])
@@ -165,7 +167,6 @@ if __name__ == '__main__':
     air_kerma = st.sidebar.text_input("Air Kerma")
     mask_inner_fraction = float(mask_inner_fraction)
     mask_outer_fraction = float(mask_outer_fraction)
-    st.title("IEC 62220-2 Metric Evaluation")
     if high_data is not None and low_data is not None and len(air_kerma):
         air_kerma = float(air_kerma)
         high = pydicom.dcmread(high_data)
