@@ -1,10 +1,11 @@
+import altair as alt
 import streamlit as st
+import pandas as pd
 import pydicom
 import numpy as np
 import matplotlib
 from matplotlib.figure import Figure
 from matplotlib import patches
-# from matplotlib import pyplot as plt
 import skimage
 import skimage.feature
 import skimage.transform
@@ -251,27 +252,22 @@ if __name__ == '__main__':
         pmmaimg_cnr /= np.sqrt(air_kerma)
         pmma_feature_inds = trphantom[:, 3] == 1
         al_feature_inds = trphantom[:, 3] == 0
+        cnr_data = pd.DataFrame({"Feature Index": feature_inds,
+                                 "PMMA Image CNR / √X": pmmaimg_cnr,
+                                 "Al Image CNR / √X": alimg_cnr,
+                                 "Feature Material": ["Al"] * 5 + ["PMMA"] * 5})
 
-        fig = Figure()
-        ax = fig.add_subplot()
-        ax2 = ax.twinx()
-        ax.set_title("CNR / √X in PMMA subtracted image")
-        ax.plot(feature_inds[pmma_feature_inds], pmmaimg_cnr[pmma_feature_inds], color='b')
-        ax.set_xlabel("Feature Index")
-        ax.set_ylabel("PMMA Feature Contrast", color='b')
-        ax2.plot(feature_inds[al_feature_inds], pmmaimg_cnr[al_feature_inds], color='g')
-        ax2.set_ylabel("Al Feature Contrast", color='g')
-        st.pyplot(fig)
+        fig = alt.Chart(cnr_data).mark_line().encode(x=alt.X("Feature Index", type="ordinal"),
+                                                     y="PMMA Image CNR / √X", color="Feature Material")
+        fig = fig.configure_axis(labelFontSize=14)
+        fig = fig.interactive()
+        st.altair_chart(fig, use_container_width=True)
 
-        fig = Figure()
-        ax = fig.add_subplot()
-        ax2 = ax.twinx()
-        ax.set_title("CNR / √X in Al subtracted image")
-        ax.plot(feature_inds[pmma_feature_inds], alimg_cnr[pmma_feature_inds], color='b')
-        ax.set_xlabel("Feature Index")
-        ax.set_ylabel("PMMA Feature Contrast", color='b')
-        ax2.plot(feature_inds[al_feature_inds], alimg_cnr[al_feature_inds], color='g')
-        ax2.set_ylabel("Al Feature Contrast", color='g')
-        st.pyplot(fig)
+        fig = alt.Chart(cnr_data).mark_line().encode(x=alt.X("Feature Index", type="ordinal"),
+                                                                  y="Al Image CNR / √X", color="Feature Material")
+        fig = fig.configure_axis(labelFontSize=14)
+        fig = fig.interactive()
+        st.altair_chart(fig, use_container_width=True)
+
     st.markdown("Find source code on [github](https://github.com/stilley2/desubtraction_metric)")
     st.text("© 2021, Steven Tilley")

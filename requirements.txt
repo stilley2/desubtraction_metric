@@ -1,5 +1,7 @@
+altair
 matplotlib
 numpy
+pandas
 pydicom
 scikit-image
 streamlit
