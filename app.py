@@ -255,18 +255,23 @@ if __name__ == '__main__':
         cnr_data = pd.DataFrame({"Feature Index": feature_inds,
                                  "PMMA Image CNR / √X": pmmaimg_cnr,
                                  "Al Image CNR / √X": alimg_cnr,
-                                 "Feature Material": ["Al"] * 5 + ["PMMA"] * 5})
+                                 "Feature Material": ["Al"] * 5 + ["PMMA"] * 5,
+                                 "Feature Height (mm)": trphantom[:, 2]})
 
-        fig = alt.Chart(cnr_data).mark_line().encode(x=alt.X("Feature Index", type="ordinal"),
-                                                     y="PMMA Image CNR / √X", color="Feature Material")
-        fig = fig.configure_axis(labelFontSize=14)
-        fig = fig.interactive()
+        fig = alt.Chart(cnr_data).mark_line(point=True)
+        fig = fig.encode(x=alt.X("Feature Index", type="ordinal", axis=alt.Axis(labelAngle=0)),
+                         y="PMMA Image CNR / √X", color="Feature Material",
+                         tooltip=["Feature Index", "PMMA Image CNR / √X",
+                                  "Feature Material", "Feature Height (mm)"])
+        fig = fig.configure_axis(labelFontSize=14, titleFontSize=16).configure_legend(labelFontSize=14, titleFontSize=16)
         st.altair_chart(fig, use_container_width=True)
 
-        fig = alt.Chart(cnr_data).mark_line().encode(x=alt.X("Feature Index", type="ordinal"),
-                                                                  y="Al Image CNR / √X", color="Feature Material")
-        fig = fig.configure_axis(labelFontSize=14)
-        fig = fig.interactive()
+        fig = alt.Chart(cnr_data).mark_line(point=True)
+        fig = fig.encode(x=alt.X("Feature Index", type="ordinal", axis=alt.Axis(labelAngle=0)),
+                         y="Al Image CNR / √X", color="Feature Material",
+                         tooltip = ["Feature Index", "PMMA Image CNR / √X",
+                                    "Feature Material", "Feature Height (mm)"])
+        fig = fig.configure_axis(labelFontSize=14, titleFontSize=16).configure_legend(labelFontSize=14, titleFontSize=16)
         st.altair_chart(fig, use_container_width=True)
 
     st.markdown("Find source code on [github](https://github.com/stilley2/desubtraction_metric)")
