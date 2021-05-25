@@ -148,6 +148,29 @@ def cnr(img, inner, outer, nlabels):
     return np.array(cnr)
 
 
+def load_dcm(f, forgiving=False):
+    if forgiving:
+        pydicom.filereader.read_preamble(f, False)
+        h = pydicom.filereader.read_dataset(f, is_implicit_VR=False, is_little_endian=True, stop_when=lambda tag, vr, val: tag.group > 2)
+        ts = h["TransferSyntaxUID"]
+        if ts.value == pydicom.uid.ExplicitVRBigEndian:
+            ivr = False
+            le = False
+        elif ts.value == pydicom.uid.ExplicitVRLittleEndian:
+            ivr = False
+            le = True
+        elif ts.value == pydicom.uid.ImplicitVRLittleEndian:
+            ivr = True
+            le = True
+        else:
+            raise RuntimeError("unsupported transfer sytanx")
+        dataset = pydicom.filereader.read_dataset(f, is_implicit_VR=ivr, is_little_endian=le)
+        dataset.file_meta = h
+    else:
+        dataset = pydicom.dcmread(f)
+    return dataset
+
+
 if __name__ == '__main__':
     st.set_page_config(page_title="DE Subtraction", page_icon="🔬")
     st.title("IEC 62220-2 Metric Evaluation")
@@ -155,6 +178,7 @@ if __name__ == '__main__':
     matplotlib.rcParams["image.cmap"] = "Greys_r"
     high_data = st.sidebar.file_uploader("High energy image file", type=["dcm", "DCM"])
     low_data = st.sidebar.file_uploader("Low energy image file", type=["dcm", "DCM"])
+    forgiving = st.sidebar.checkbox("Read dicoms in as forgiving a manner as possible")
     verbose = st.sidebar.checkbox("Verbose")
     mask_inner_fraction = st.sidebar.text_input("Inner ROI radius fraction",
                                                 value=0.8,
@@ -170,9 +194,9 @@ if __name__ == '__main__':
     mask_outer_fraction = float(mask_outer_fraction)
     if high_data is not None and low_data is not None and len(air_kerma):
         air_kerma = float(air_kerma)
-        high = pydicom.dcmread(high_data)
+        high = load_dcm(high_data, forgiving=forgiving)
         high_img = high.pixel_array.astype(np.float64)
-        low = pydicom.dcmread(low_data)
+        low = load_dcm(low_data, forgiving=forgiving)
         low_img = low.pixel_array.astype(np.float64)
         if high.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[1]:
             raise RuntimeError("Anisotropic pixels not supported")
