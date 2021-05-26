@@ -56,6 +56,24 @@ def get_means(img, pixel_spacing, centers):
 
 
 @st.cache
+def quad_detrend(img, pixel_spacing, centers):
+    ygrid, xgrid = np.mgrid[:img.shape[0], :img.shape[1]]
+    rad = RADIUS / pixel_spacing * MASK_OUTER_RADIUS_FRACTION
+    mask = np.ones(img.shape, dtype=bool)
+    for cx, cy in centers:
+        mask[(ygrid - cy) ** 2 + (xgrid - cx) ** 2 < rad ** 2] = 0
+    X = xgrid[mask]
+    Y = ygrid[mask]
+    Z = img[mask].astype(np.float64)
+    A = np.stack((X ** 2, Y ** 2, X * Y, X, Y, np.ones_like(X)), axis=1).astype(np.float64)
+    p = np.linalg.solve(A.transpose() @ A, A.transpose() @ Z)
+    X = xgrid.ravel()
+    Y = ygrid.ravel()
+    A = np.stack((X ** 2, Y ** 2, X * Y, X, Y), axis=1).astype(np.float64)
+    return img - (A @ p[:-1]).reshape(img.shape)
+
+
+@st.cache
 def sort_circles(img, pixel_spacing, centers):
     means = get_means(img, pixel_spacing, centers)
     theta = np.arctan2(centers[:, 1] - np.mean(centers[:, 1]), centers[:, 0] - np.mean(centers[:, 0]))
@@ -179,6 +197,7 @@ if __name__ == '__main__':
     high_data = st.sidebar.file_uploader("High energy image file", type=["dcm", "DCM"])
     low_data = st.sidebar.file_uploader("Low energy image file", type=["dcm", "DCM"])
     forgiving = st.sidebar.checkbox("Read dicoms in as forgiving a manner as possible")
+    quad_detrend_all = st.sidebar.checkbox("Quadratically detrend images prior to metric calculation")
     verbose = st.sidebar.checkbox("Verbose")
     mask_inner_fraction = st.sidebar.text_input("Inner ROI radius fraction",
                                                 value=0.8,
@@ -214,7 +233,14 @@ if __name__ == '__main__':
         high_img = high_img[slices]
         low_img = low_img[slices]
         hough_centers = hough_wrapper(high_img, high.ImagerPixelSpacing[0])
-        hough_centers = sort_circles(high_img, high.ImagerPixelSpacing[0], hough_centers)
+        high_dt_img = quad_detrend(high_img, high.ImagerPixelSpacing[0], hough_centers)
+        if quad_detrend_all:
+            high_img = high_dt_img
+            low_img = quad_detrend(low_img, low.ImagerPixelSpacing[0], hough_centers)
+        if verbose:
+            st.header("Quadratically detrended high image")
+            st.pyplot(plot_circles(high_dt_img, hough_centers))
+        hough_centers = sort_circles(high_dt_img, high.ImagerPixelSpacing[0], hough_centers)
         if verbose:
             st.header("High energy image with detected circle centers")
             st.pyplot(plot_circles(high_img, hough_centers))
@@ -253,6 +279,8 @@ if __name__ == '__main__':
         pmmaimg = high_img / low_img ** w_pmma
 
         st.header("DE Images")
+        params = pd.DataFrame({"Material": ["Al", "PMMA"], "Subtraction parameter": [w_al, w_pmma]})
+        st.dataframe(data=params)
         fig = Figure()
         ax = fig.add_subplot()
         ax.imshow(pmmaimg)
