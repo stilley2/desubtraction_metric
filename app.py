@@ -227,8 +227,8 @@ if __name__ == '__main__':
             raise RuntimeError("Low and high images must have the same shape")
 
         height_width = ROI / np.array(high.ImagerPixelSpacing)
-        starts = ((np.array(high_img.shape) - height_width) // 2).astype(np.int)
-        stops = np.ceil(starts + height_width).astype(np.int)
+        starts = ((np.array(high_img.shape) - height_width) // 2).astype(int)
+        stops = np.ceil(starts + height_width).astype(int)
         slices = tuple((slice(s, e) for s, e in zip(starts, stops)))
         high_img = high_img[slices]
         low_img = low_img[slices]
