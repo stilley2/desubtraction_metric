@@ -1,20 +1,17 @@
-import altair as alt
-import streamlit as st
-import io
 import pandas as pd
-import PIL.Image
-import PIL.TiffImagePlugin
 import pydicom
 import pydicom.errors
 import pydicom.uid
 import numpy as np
-import matplotlib
-from matplotlib.figure import Figure
-from matplotlib import patches
 import skimage
 import skimage.feature
 import skimage.transform
-import csv
+
+try:
+    from . import _version
+    __version__ = _version.version
+except ImportError:
+    __version__ = "0.0.0"
 
 
 ROI = 250  # mm
@@ -29,17 +26,22 @@ PMMA_MID_INDEX = 7
 AL_MID_INDEX = 2
 
 
-@st.cache
 def read_phantom():
-    with open("phantom_spec.txt", "r", newline='') as f:
-        r = csv.reader(f)
-        next(r)  # skip first line
-        phantom = [rt for rt in r]
-        phantom = np.array(phantom).astype(np.float64)
+    phantom = np.array([
+                        [-62.5466040683311, -0.28671780863608404, 0.5, 0],
+                        [-36.55623920764044, 32.711745690953585, 1.0, 0],
+                        [-12.549675498793937, -0.29496311114721413, 1.5, 0],
+                        [11.459630483012036, 32.71930991609118, 2.0, 0],
+                        [37.44565274645893, -0.29597198220987325, 2.5, 0],
+                        [37.45365892552708, -42.308708996638636, 10.0, 1],
+                        [11.458209375406152, -75.30952128448895, 8.0, 1],
+                        [-12.549642184022852, -42.315128638316224, 6.0, 1],
+                        [-36.53880813528695, -75.30898119650237, 4.0, 1],
+                        [-62.55791278497006, -42.308066812820734, 2.0, 1]
+                        ])
     return phantom
 
 
-@st.cache
 def hough_wrapper(img, pixel_spacing):
     edge = skimage.feature.canny(img, sigma=CANNY_SIGMA / pixel_spacing)
     radius_mid = RADIUS / pixel_spacing
@@ -61,7 +63,6 @@ def get_means(img, pixel_spacing, centers):
     return np.array(means)
 
 
-@st.cache
 def quad_detrend(img, pixel_spacing, centers):
     ygrid, xgrid = np.mgrid[:img.shape[0], :img.shape[1]]
     rad = RADIUS / pixel_spacing * MASK_OUTER_RADIUS_FRACTION
@@ -79,7 +80,6 @@ def quad_detrend(img, pixel_spacing, centers):
     return img - (A @ p[:-1]).reshape(img.shape)
 
 
-@st.cache
 def sort_circles(img, pixel_spacing, centers):
     means = get_means(img, pixel_spacing, centers)
     theta = np.arctan2(centers[:, 1] - np.mean(centers[:, 1]), centers[:, 0] - np.mean(centers[:, 0]))
@@ -108,7 +108,6 @@ def sort_circles(img, pixel_spacing, centers):
     return np.concatenate((centers[aluminum][np.argsort(theta[aluminum])], centers[pmma][np.argsort(theta[pmma])]))
 
 
-@st.cache
 def transform_phantom(centers, phantom, pixel_spacing):
     phantom = phantom.copy()
     tradj = skimage.transform.AffineTransform(scale=[pixel_spacing, -pixel_spacing],
@@ -122,23 +121,6 @@ def transform_phantom(centers, phantom, pixel_spacing):
     return phantom, radius
 
 
-def plot_circles(img, circle_data, radii=None):
-    mats = {0: "Al", 1: "PMMA"}
-    fig_ = Figure()
-    ax_ = fig_.add_subplot()
-    ax_.imshow(img)
-    for i in range(circle_data.shape[0]):
-        ax_.plot(circle_data[i, 0], circle_data[i, 1], color='C0', marker='o', linestyle=None)
-        if radii is not None:
-            for radius in radii:
-                ax_.add_patch(patches.Circle(circle_data[i, :2], radius=radius, facecolor='none', edgecolor='b'))
-        if circle_data.shape[1] >= 4:
-            ax_.text(circle_data[i, 0], circle_data[i, 1] - 5,
-                     f"{circle_data[i, 2]:.2f} {mats[circle_data[i, 3]]}")
-    return fig_
-
-
-@st.cache
 def get_labels(imgshape, circle_data, r1, r2, r3):
     inner = np.zeros(imgshape, dtype='u8')
     outer = np.zeros(imgshape, dtype='u8')
@@ -156,13 +138,11 @@ def get_labels(imgshape, circle_data, r1, r2, r3):
     return inner, outer
 
 
-@st.cache
 def get_w(hi, li, minner, mouter):
     # return np.log(np.mean(hi[mouter]) / np.mean(hi[minner])) / np.log(np.mean(li[mouter]) / np.mean(li[minner]))
     return np.log(np.mean(hi[minner]) / np.mean(hi[mouter])) / np.log(np.mean(li[minner]) / np.mean(li[mouter]))
 
 
-@st.cache
 def cnr(img, inner, outer, nlabels, feature_inds_, feature_mats_, feature_heights, mat, kerma):
     out = {"Feature Index": [],
            "CNR / √X": [],
@@ -213,19 +193,6 @@ def load_dcm(f):
         dataset = pydicom.filereader.read_dataset(f, is_implicit_VR=ivr, is_little_endian=le)
         dataset.file_meta = h
     return dataset
-
-
-@st.cache
-def to_tiff(img, pixel_spacing):
-    x = PIL.Image.fromarray(img)
-    ifd = PIL.TiffImagePlugin.ImageFileDirectory_v2()
-    ifd[282] = 10.0 / pixel_spacing[1]  # x resolution
-    ifd[283] = 10.0 / pixel_spacing[0]  # y resolution
-    ifd[296] = 3  # centimeters
-    fp = io.BytesIO()
-    x.save(fp, format="tiff", tiffinfo=ifd)
-    fp.seek(0)
-    return fp
 
 
 def _proc(high_data, low_data, air_kerma, quad_detrend_all):
@@ -302,87 +269,16 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all):
     yield cnr_data
 
 
-if __name__ == '__main__':
-    st.set_page_config(page_title="DE Subtraction", page_icon="🔬")
-    st.title("IEC 62220-2 Metric Evaluation")
-    matplotlib.use("SVG")
-    matplotlib.rcParams["image.cmap"] = "Greys_r"
-    high_data_ = st.sidebar.file_uploader("High energy image file", type=["dcm", "DCM"])
-    low_data_ = st.sidebar.file_uploader("Low energy image file", type=["dcm", "DCM"])
-    quad_detrend_all_ = st.sidebar.checkbox("Quadratically detrend images prior to metric calculation")
-    verbose = st.sidebar.checkbox("Verbose")
-    air_kerma_ = st.sidebar.text_input("Air Kerma")
-    if high_data_ is not None and low_data_ is not None and len(air_kerma_):
-        air_kerma_ = float(air_kerma_)
-        prociter = _proc(high_data_, low_data_, air_kerma_, quad_detrend_all_)
-        pixel_spacing_ = next(prociter)
-        high_dt_img_, hough_centers_ = next(prociter)
-        if verbose:
-            st.header("Quadratically detrended high image")
-            st.pyplot(plot_circles(high_dt_img_, hough_centers_))
-        high_img_, hough_centers_ = next(prociter)
-        if verbose:
-            st.header("High energy image with detected circle centers")
-            st.pyplot(plot_circles(high_img_, hough_centers_))
-        trphantom_, trradius_ = next(prociter)
-        st.header("High energy image with registered ROIs")
-        st.pyplot(plot_circles(high_img_, trphantom_, radii=[trradius_]))
-        rad1_, rad2_, rad3_ = next(prociter)
-        st.header("ROI mean/std extraction")
-        st.pyplot(plot_circles(high_img_, trphantom_[:, :2], radii=[rad1_, rad2_, rad3_]))
-        inner_labels_, outer_labels_ = next(prociter)
-        if verbose:
-            st.subheader("ROI Mask Visualization")
-            st.text("Masks are shown by multipling the base image by 1.1")
-            img_masks = high_img_.copy()
-            img_masks[inner_labels_ > 0] *= 1.1
-            img_masks[outer_labels_ > 0] *= 1.1
-            fig = Figure()
-            ax = fig.add_subplot()
-            ax.imshow(img_masks)
-            st.pyplot(fig)
-
-        st.header("DE Images")
-        w_pmma_, w_al_ = next(prociter)
-        params = pd.DataFrame({"Material": ["Al", "PMMA"], "Subtraction parameter": [w_al_, w_pmma_]})
-        st.dataframe(data=params)
-        pmmaimg_, alimg_ = next(prociter)
-        fig = Figure()
-        ax = fig.add_subplot()
-        ax.imshow(pmmaimg_)
-        ax.set_title("PMMA subtracted image")
-        pmmatiff = to_tiff(pmmaimg_, pixel_spacing_)
-        st.download_button("Download PMMA subtracted image", pmmatiff, file_name="pmma.tiff", mime="image/tiff")
-        st.pyplot(fig)
-        fig = Figure()
-        ax = fig.add_subplot()
-        ax.imshow(alimg_)
-        ax.set_title("Al subtracted image")
-        altiff = to_tiff(alimg_, pixel_spacing_)
-        st.download_button("Download Al subtracted image", altiff, file_name="al.tiff", mime="image/tiff")
-        st.pyplot(fig)
-
-        st.header("DE CNR")
-        st.text("Feature indexes are separate for each material and ordered by increasing height")
-        cnr_data_ = next(prociter)
-
-        fig = alt.Chart(cnr_data_).mark_line(point=True)
-        fig = fig.encode(x=alt.X("Feature Index", type="ordinal", axis=alt.Axis(labelAngle=0)),
-                         y=alt.Y("CNR / √X", type="quantitative"),
-                         color=alt.Color("Feature Material", type="nominal"),
-                         row=alt.Row("DE Image", type="nominal", sort=["PMMA", "Al"]),
-                         tooltip=["Feature Index", "CNR / √X",
-                                  "Feature Material", "DE Image", "Feature Height (mm)"])
-        fig = fig.configure_axis(labelFontSize=14, titleFontSize=16)
-        fig = fig.configure_legend(labelFontSize=14, titleFontSize=16)
-        fig = fig.configure_headerRow(labelFontSize=14, titleFontSize=16)
-        st.altair_chart(fig, use_container_width=True)
-
-        cnr_data_fp = io.StringIO()
-        cnr_data_.to_csv(cnr_data_fp)
-        cnr_data_fp.seek(0)
-        st.download_button("Download CSV data", cnr_data_fp.read().encode("utf-8"),
-                           file_name="desub.csv", mime="text/csv")
-
-    st.markdown("Find source code on [github](https://github.com/stilley2/desubtraction_metric)")
-    st.text("© 2021, Steven Tilley")
+def proc(high_data, low_data, air_kerma, quad_detrend_all):
+    prociter = _proc(high_data, low_data, air_kerma, quad_detrend_all)
+    for _ in range(7):
+        next(prociter)
+    pmmaimg, alimg = next(prociter)
+    cnr_data = next(prociter)
+    try:
+        next(prociter)
+    except StopIteration:
+        pass
+    else:
+        raise RuntimeError("Unexpected number of outputs")
+    return cnr_data, pmmaimg, alimg
