@@ -258,6 +258,7 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all):
     assert (np.all(trphantom[:, 3] == np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])))
     feature_inds = np.array([1, 2, 3, 4, 5, 5, 4, 3, 2, 1])
     feature_mats = ["Al"] * 5 + ["PMMA"] * 5
+    yield feature_inds, feature_mats
 
     alimg_cnr_data = cnr(alimg, inner_labels, outer_labels, trphantom.shape[0],
                          feature_inds, feature_mats, trphantom[:, 2], "Al", air_kerma)
@@ -275,11 +276,12 @@ def proc(high_data, low_data, air_kerma, quad_detrend_all):
     out["pixel_spacing"] = next(prociter)
     next(prociter)
     out["high_img"], out["low_img"], out["hough_centers"] = next(prociter)
-    next(prociter)
+    out["trphantom"], out["trradious"] = next(prociter)
     next(prociter)
     out["inner_labels"], out["outer_labels"] = next(prociter)
     out["w_pmma"], out["w_al"] = next(prociter)
     out["pmmaimg"], out["alimg"] = next(prociter)
+    out["feature_inds"], out["feature_mats"] = next(prociter)
     cnr_data = next(prociter)
     try:
         next(prociter)
