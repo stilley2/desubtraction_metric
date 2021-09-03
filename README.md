@@ -21,14 +21,14 @@ There are currently two ways to use the repository, as a python library or as a 
 ```python
 import desub
 
-data, pmmaimg, alimg = desub.proc(high_energy_dicom_filename,  # file name of dicom file containing high energy data
-                                  low_energy_dicom_filename,  # file name of dicom file containing low energy data
-                                  air_kerma,  # air kerma in µGy
-                                  quad_detrend_all=False)  # whether to quadratically detrend before calculating the metric
+data, extra = desub.proc(high_energy_dicom_filename,  # file name of dicom file containing high energy data
+                         low_energy_dicom_filename,  # file name of dicom file containing low energy data
+                         air_kerma,  # air kerma in µGy
+                         quad_detrend_all=False)  # whether to quadratically detrend before calculating the metric
 ```
 where `data` is a [DataFrame](https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.html)
-containing the output CNR for each DE image and feature, `pmmaimg` is the dual-energy subtracted image of the
-PMMA inserts, and `alimg` is the dual-energy subtracted image of the aluminum inserts.
+containing the output CNR for each DE image and feature and `extra` is a dictionary with intermediate processing
+data.
 
 ## Streamlit app
 

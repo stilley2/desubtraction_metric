@@ -58,7 +58,7 @@ if __name__ == '__main__':
         if verbose:
             st.header("Quadratically detrended high image")
             st.pyplot(plot_circles(high_dt_img_, hough_centers_))
-        high_img_, hough_centers_ = next(prociter)
+        high_img_, _, hough_centers_ = next(prociter)
         if verbose:
             st.header("High energy image with detected circle centers")
             st.pyplot(plot_circles(high_img_, hough_centers_))

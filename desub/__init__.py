@@ -226,7 +226,7 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all):
         low_img = quad_detrend(low_img, low.ImagerPixelSpacing[0], hough_centers)
     yield high_dt_img, hough_centers
     hough_centers = sort_circles(high_dt_img, high.ImagerPixelSpacing[0], hough_centers)
-    yield high_img, hough_centers
+    yield high_img, low_img, hough_centers
     trphantom, trradius = transform_phantom(hough_centers, read_phantom(), high.ImagerPixelSpacing[0])
     yield trphantom, trradius
 
@@ -271,9 +271,15 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all):
 
 def proc(high_data, low_data, air_kerma, quad_detrend_all):
     prociter = _proc(high_data, low_data, air_kerma, quad_detrend_all)
-    for _ in range(7):
-        next(prociter)
-    pmmaimg, alimg = next(prociter)
+    out = {}
+    out["pixel_spacing"] = next(prociter)
+    next(prociter)
+    out["high_img"], out["low_img"], out["hough_centers"] = next(prociter)
+    next(prociter)
+    next(prociter)
+    out["inner_labels"], out["outer_labels"] = next(prociter)
+    out["w_pmma"], out["w_al"] = next(prociter)
+    out["pmmaimg"], out["alimg"] = next(prociter)
     cnr_data = next(prociter)
     try:
         next(prociter)
@@ -281,4 +287,4 @@ def proc(high_data, low_data, air_kerma, quad_detrend_all):
         pass
     else:
         raise RuntimeError("Unexpected number of outputs")
-    return cnr_data, pmmaimg, alimg
+    return cnr_data, out
