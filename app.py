@@ -163,7 +163,7 @@ def get_w(hi, li, minner, mouter):
 
 
 @st.cache
-def cnr(img, inner, outer, nlabels, feature_inds_, feature_mats_, feature_heights, mat, air_kerma_):
+def cnr(img, inner, outer, nlabels, feature_inds_, feature_mats_, feature_heights, mat, kerma):
     out = {"Feature Index": [],
            "CNR / √X": [],
            "Feature Material": [],
@@ -182,7 +182,7 @@ def cnr(img, inner, outer, nlabels, feature_inds_, feature_mats_, feature_height
         out["var outer"].append(np.var(img[om]))
         out["CNR / √X"].append(np.abs(out["mean inner"][-1] - out["mean outer"][-1]) /
                                np.sqrt(out["var inner"][-1] + out["var outer"][-1]) /
-                               np.sqrt(air_kerma_))
+                               np.sqrt(kerma))
         out["Feature Index"].append(feature_inds_[i])
         out["Feature Material"].append(feature_mats_[i])
         out["Feature Height (mm)"].append(feature_heights[i])
@@ -228,120 +228,145 @@ def to_tiff(img, pixel_spacing):
     return fp
 
 
+def _proc(high_data, low_data, air_kerma, quad_detrend_all):
+    high = load_dcm(high_data)
+    high_img = high.pixel_array.astype(np.float64)
+    low = load_dcm(low_data)
+    low_img = low.pixel_array.astype(np.float64)
+    if high.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[1]:
+        raise RuntimeError("Anisotropic pixels not supported")
+    if low.ImagerPixelSpacing[0] != low.ImagerPixelSpacing[1]:
+        raise RuntimeError("Anisotropic pixels not supported")
+    if low.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[0]:
+        raise RuntimeError("Low and high images must have the same pixel spacing")
+    if low_img.shape != high_img.shape:
+        raise RuntimeError("Low and high images must have the same shape")
+    yield high.ImagerPixelSpacing
+    mask_inner_fraction = 0.8
+    mask_outer_fraction = 1.2
+    mask_outer_fraction2 = 1.44
+
+    height_width = ROI / np.array(high.ImagerPixelSpacing)
+    starts = ((np.array(high_img.shape) - height_width) // 2).astype(int)
+    stops = np.ceil(starts + height_width).astype(int)
+    slices = tuple((slice(s, e) for s, e in zip(starts, stops)))
+    high_img = high_img[slices]
+    low_img = low_img[slices]
+    hough_centers = hough_wrapper(high_img, high.ImagerPixelSpacing[0])
+    high_dt_img = quad_detrend(high_img, high.ImagerPixelSpacing[0], hough_centers)
+    if quad_detrend_all:
+        high_img = high_dt_img
+        low_img = quad_detrend(low_img, low.ImagerPixelSpacing[0], hough_centers)
+    yield high_dt_img, hough_centers
+    hough_centers = sort_circles(high_dt_img, high.ImagerPixelSpacing[0], hough_centers)
+    yield high_img, hough_centers
+    trphantom, trradius = transform_phantom(hough_centers, read_phantom(), high.ImagerPixelSpacing[0])
+    yield trphantom, trradius
+
+    rad1 = trradius * mask_inner_fraction
+    rad2 = trradius * mask_outer_fraction
+    rad3 = trradius * mask_outer_fraction2
+
+    yield rad1, rad2, rad3
+
+    inner_labels, outer_labels = get_labels(high_img.shape, trphantom, rad1, rad2, rad3)
+    yield inner_labels, outer_labels
+
+    assert (trphantom[PMMA_MID_INDEX, 2] == 6.0)
+    assert (trphantom[PMMA_MID_INDEX, 3] == 1.0)
+    assert (trphantom[AL_MID_INDEX, 2] == 1.5)
+    assert (trphantom[AL_MID_INDEX, 3] == 0.0)
+    w_al = get_w(high_img, low_img,
+                 inner_labels == PMMA_MID_INDEX + 1,
+                 outer_labels == PMMA_MID_INDEX + 1)
+    alimg = high_img / low_img ** w_al
+    w_pmma = get_w(high_img, low_img,
+                   inner_labels == AL_MID_INDEX + 1,
+                   outer_labels == AL_MID_INDEX + 1)
+    pmmaimg = high_img / low_img ** w_pmma
+    yield w_pmma, w_al
+    yield pmmaimg, alimg
+
+    assert (np.all(trphantom[:, 2] == np.array([0.5, 1.0, 1.5, 2.0, 2.5, 10.0, 8.0, 6.0, 4.0, 2.0])))
+    assert (np.all(trphantom[:, 3] == np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])))
+    feature_inds = np.array([1, 2, 3, 4, 5, 5, 4, 3, 2, 1])
+    feature_mats = ["Al"] * 5 + ["PMMA"] * 5
+
+    alimg_cnr_data = cnr(alimg, inner_labels, outer_labels, trphantom.shape[0],
+                         feature_inds, feature_mats, trphantom[:, 2], "Al", air_kerma)
+    pmmaimg_cnr_data = cnr(pmmaimg, inner_labels, outer_labels, trphantom.shape[0],
+                           feature_inds, feature_mats, trphantom[:, 2], "PMMA", air_kerma)
+    cnr_data = pd.DataFrame()
+    cnr_data = cnr_data.append(alimg_cnr_data)
+    cnr_data = cnr_data.append(pmmaimg_cnr_data)
+    yield cnr_data
+
+
 if __name__ == '__main__':
     st.set_page_config(page_title="DE Subtraction", page_icon="🔬")
     st.title("IEC 62220-2 Metric Evaluation")
     matplotlib.use("SVG")
     matplotlib.rcParams["image.cmap"] = "Greys_r"
-    high_data = st.sidebar.file_uploader("High energy image file", type=["dcm", "DCM"])
-    low_data = st.sidebar.file_uploader("Low energy image file", type=["dcm", "DCM"])
-    quad_detrend_all = st.sidebar.checkbox("Quadratically detrend images prior to metric calculation")
+    high_data_ = st.sidebar.file_uploader("High energy image file", type=["dcm", "DCM"])
+    low_data_ = st.sidebar.file_uploader("Low energy image file", type=["dcm", "DCM"])
+    quad_detrend_all_ = st.sidebar.checkbox("Quadratically detrend images prior to metric calculation")
     verbose = st.sidebar.checkbox("Verbose")
-    mask_inner_fraction = 0.8
-    mask_outer_fraction = 1.2
-    mask_outer_fraction2 = 1.44
-    air_kerma = st.sidebar.text_input("Air Kerma")
-    if high_data is not None and low_data is not None and len(air_kerma):
-        air_kerma = float(air_kerma)
-        high = load_dcm(high_data)
-        high_img = high.pixel_array.astype(np.float64)
-        low = load_dcm(low_data)
-        low_img = low.pixel_array.astype(np.float64)
-        if high.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[1]:
-            raise RuntimeError("Anisotropic pixels not supported")
-        if low.ImagerPixelSpacing[0] != low.ImagerPixelSpacing[1]:
-            raise RuntimeError("Anisotropic pixels not supported")
-        if low.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[0]:
-            raise RuntimeError("Low and high images must have the same pixel spacing")
-        if low_img.shape != high_img.shape:
-            raise RuntimeError("Low and high images must have the same shape")
-
-        height_width = ROI / np.array(high.ImagerPixelSpacing)
-        starts = ((np.array(high_img.shape) - height_width) // 2).astype(int)
-        stops = np.ceil(starts + height_width).astype(int)
-        slices = tuple((slice(s, e) for s, e in zip(starts, stops)))
-        high_img = high_img[slices]
-        low_img = low_img[slices]
-        hough_centers = hough_wrapper(high_img, high.ImagerPixelSpacing[0])
-        high_dt_img = quad_detrend(high_img, high.ImagerPixelSpacing[0], hough_centers)
-        if quad_detrend_all:
-            high_img = high_dt_img
-            low_img = quad_detrend(low_img, low.ImagerPixelSpacing[0], hough_centers)
+    air_kerma_ = st.sidebar.text_input("Air Kerma")
+    if high_data_ is not None and low_data_ is not None and len(air_kerma_):
+        air_kerma_ = float(air_kerma_)
+        prociter = _proc(high_data_, low_data_, air_kerma_, quad_detrend_all_)
+        pixel_spacing_ = next(prociter)
+        high_dt_img_, hough_centers_ = next(prociter)
         if verbose:
             st.header("Quadratically detrended high image")
-            st.pyplot(plot_circles(high_dt_img, hough_centers))
-        hough_centers = sort_circles(high_dt_img, high.ImagerPixelSpacing[0], hough_centers)
+            st.pyplot(plot_circles(high_dt_img_, hough_centers_))
+        high_img_, hough_centers_ = next(prociter)
         if verbose:
             st.header("High energy image with detected circle centers")
-            st.pyplot(plot_circles(high_img, hough_centers))
-        trphantom, trradius = transform_phantom(hough_centers, read_phantom(), high.ImagerPixelSpacing[0])
+            st.pyplot(plot_circles(high_img_, hough_centers_))
+        trphantom_, trradius_ = next(prociter)
         st.header("High energy image with registered ROIs")
-        st.pyplot(plot_circles(high_img, trphantom, radii=[trradius]))
-
-        rad1 = trradius * mask_inner_fraction
-        rad2 = trradius * mask_outer_fraction
-        rad3 = trradius * mask_outer_fraction2
-
+        st.pyplot(plot_circles(high_img_, trphantom_, radii=[trradius_]))
+        rad1_, rad2_, rad3_ = next(prociter)
         st.header("ROI mean/std extraction")
-        st.pyplot(plot_circles(high_img, trphantom[:, :2], radii=[rad1, rad2, rad3]))
-        inner_labels, outer_labels = get_labels(high_img.shape, trphantom, rad1, rad2, rad3)
+        st.pyplot(plot_circles(high_img_, trphantom_[:, :2], radii=[rad1_, rad2_, rad3_]))
+        inner_labels_, outer_labels_ = next(prociter)
         if verbose:
             st.subheader("ROI Mask Visualization")
             st.text("Masks are shown by multipling the base image by 1.1")
-            img_masks = high_img.copy()
-            img_masks[inner_labels > 0] *= 1.1
-            img_masks[outer_labels > 0] *= 1.1
+            img_masks = high_img_.copy()
+            img_masks[inner_labels_ > 0] *= 1.1
+            img_masks[outer_labels_ > 0] *= 1.1
             fig = Figure()
             ax = fig.add_subplot()
             ax.imshow(img_masks)
             st.pyplot(fig)
-        assert(trphantom[PMMA_MID_INDEX, 2] == 6.0)
-        assert(trphantom[PMMA_MID_INDEX, 3] == 1.0)
-        assert(trphantom[AL_MID_INDEX, 2] == 1.5)
-        assert(trphantom[AL_MID_INDEX, 3] == 0.0)
-        w_al = get_w(high_img, low_img,
-                     inner_labels == PMMA_MID_INDEX + 1,
-                     outer_labels == PMMA_MID_INDEX + 1)
-        alimg = high_img / low_img ** w_al
-        w_pmma = get_w(high_img, low_img,
-                       inner_labels == AL_MID_INDEX + 1,
-                       outer_labels == AL_MID_INDEX + 1)
-        pmmaimg = high_img / low_img ** w_pmma
 
         st.header("DE Images")
-        params = pd.DataFrame({"Material": ["Al", "PMMA"], "Subtraction parameter": [w_al, w_pmma]})
+        w_pmma_, w_al_ = next(prociter)
+        params = pd.DataFrame({"Material": ["Al", "PMMA"], "Subtraction parameter": [w_al_, w_pmma_]})
         st.dataframe(data=params)
+        pmmaimg_, alimg_ = next(prociter)
         fig = Figure()
         ax = fig.add_subplot()
-        ax.imshow(pmmaimg)
+        ax.imshow(pmmaimg_)
         ax.set_title("PMMA subtracted image")
-        pmmatiff = to_tiff(pmmaimg, high.ImagerPixelSpacing)
+        pmmatiff = to_tiff(pmmaimg_, pixel_spacing_)
         st.download_button("Download PMMA subtracted image", pmmatiff, file_name="pmma.tiff", mime="image/tiff")
         st.pyplot(fig)
         fig = Figure()
         ax = fig.add_subplot()
-        ax.imshow(alimg)
+        ax.imshow(alimg_)
         ax.set_title("Al subtracted image")
-        altiff = to_tiff(alimg, high.ImagerPixelSpacing)
+        altiff = to_tiff(alimg_, pixel_spacing_)
         st.download_button("Download Al subtracted image", altiff, file_name="al.tiff", mime="image/tiff")
         st.pyplot(fig)
 
         st.header("DE CNR")
         st.text("Feature indexes are separate for each material and ordered by increasing height")
-        assert(np.all(trphantom[:, 2] == np.array([0.5, 1.0, 1.5, 2.0, 2.5, 10.0, 8.0, 6.0, 4.0, 2.0])))
-        assert(np.all(trphantom[:, 3] == np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])))
-        feature_inds = np.array([1, 2, 3, 4, 5, 5, 4, 3, 2, 1])
-        feature_mats = ["Al"] * 5 + ["PMMA"] * 5
+        cnr_data_ = next(prociter)
 
-        alimg_cnr_data = cnr(alimg, inner_labels, outer_labels, trphantom.shape[0],
-                             feature_inds, feature_mats, trphantom[:, 2], "Al", air_kerma)
-        pmmaimg_cnr_data = cnr(pmmaimg, inner_labels, outer_labels, trphantom.shape[0],
-                               feature_inds, feature_mats, trphantom[:, 2], "PMMA", air_kerma)
-        cnr_data = pd.DataFrame()
-        cnr_data = cnr_data.append(alimg_cnr_data)
-        cnr_data = cnr_data.append(pmmaimg_cnr_data)
-
-        fig = alt.Chart(cnr_data).mark_line(point=True)
+        fig = alt.Chart(cnr_data_).mark_line(point=True)
         fig = fig.encode(x=alt.X("Feature Index", type="ordinal", axis=alt.Axis(labelAngle=0)),
                          y=alt.Y("CNR / √X", type="quantitative"),
                          color=alt.Color("Feature Material", type="nominal"),
@@ -354,7 +379,7 @@ if __name__ == '__main__':
         st.altair_chart(fig, use_container_width=True)
 
         cnr_data_fp = io.StringIO()
-        cnr_data.to_csv(cnr_data_fp)
+        cnr_data_.to_csv(cnr_data_fp)
         cnr_data_fp.seek(0)
         st.download_button("Download CSV data", cnr_data_fp.read().encode("utf-8"),
                            file_name="desub.csv", mime="text/csv")
