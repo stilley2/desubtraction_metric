@@ -199,18 +199,10 @@ if __name__ == '__main__':
     low_data = st.sidebar.file_uploader("Low energy image file", type=["dcm", "DCM"])
     quad_detrend_all = st.sidebar.checkbox("Quadratically detrend images prior to metric calculation")
     verbose = st.sidebar.checkbox("Verbose")
-    mask_inner_fraction = st.sidebar.text_input("Inner ROI radius fraction",
-                                                value=0.8,
-                                                help="Multiply the feature radius by this value to get the radius "
-                                                     "of the inner mask.")
-    mask_outer_fraction = st.sidebar.text_input("Outer ROI radius fraction",
-                                                value=1.2,
-                                                help="Multiply the feature radius by this value to get the inner "
-                                                     "radius of the outer mask. The outer radius is chosen to "
-                                                     "match the area of the inner mask.")
+    mask_inner_fraction = 0.8
+    mask_outer_fraction = 1.2
+    mask_outer_fraction2 = 1.44
     air_kerma = st.sidebar.text_input("Air Kerma")
-    mask_inner_fraction = float(mask_inner_fraction)
-    mask_outer_fraction = float(mask_outer_fraction)
     if high_data is not None and low_data is not None and len(air_kerma):
         air_kerma = float(air_kerma)
         high = load_dcm(high_data)
@@ -250,7 +242,7 @@ if __name__ == '__main__':
 
         rad1 = trradius * mask_inner_fraction
         rad2 = trradius * mask_outer_fraction
-        rad3 = np.sqrt(rad1 ** 2 + rad2 ** 2)
+        rad3 = trradius * mask_outer_fraction2
 
         st.header("ROI mean/std extraction")
         st.pyplot(plot_circles(high_img, trphantom[:, :2], radii=[rad1, rad2, rad3]))
