@@ -5,6 +5,8 @@ import pandas as pd
 import PIL.Image
 import PIL.TiffImagePlugin
 import pydicom
+import pydicom.errors
+import pydicom.uid
 import numpy as np
 import matplotlib
 from matplotlib.figure import Figure
@@ -25,6 +27,7 @@ MASK_INNER_RADIUS_FRACTION = 0.8
 MASK_OUTER_RADIUS_FRACTION = 1.2
 PMMA_MID_INDEX = 7
 AL_MID_INDEX = 2
+
 
 @st.cache
 def read_phantom():
@@ -121,18 +124,18 @@ def transform_phantom(centers, phantom, pixel_spacing):
 
 def plot_circles(img, circle_data, radii=None):
     mats = {0: "Al", 1: "PMMA"}
-    fig = Figure()
-    ax = fig.add_subplot()
-    ax.imshow(img)
+    fig_ = Figure()
+    ax_ = fig_.add_subplot()
+    ax_.imshow(img)
     for i in range(circle_data.shape[0]):
-        ax.plot(circle_data[i, 0], circle_data[i, 1], color='C0', marker='o', linestyle=None)
+        ax_.plot(circle_data[i, 0], circle_data[i, 1], color='C0', marker='o', linestyle=None)
         if radii is not None:
             for radius in radii:
-                ax.add_patch(patches.Circle(circle_data[i, :2], radius=radius, facecolor='none', edgecolor='b'))
+                ax_.add_patch(patches.Circle(circle_data[i, :2], radius=radius, facecolor='none', edgecolor='b'))
         if circle_data.shape[1] >= 4:
-            ax.text(circle_data[i, 0], circle_data[i, 1] - 5,
-                    f"{circle_data[i, 2]:.2f} {mats[circle_data[i, 3]]}")
-    return fig
+            ax_.text(circle_data[i, 0], circle_data[i, 1] - 5,
+                     f"{circle_data[i, 2]:.2f} {mats[circle_data[i, 3]]}")
+    return fig_
 
 
 @st.cache
@@ -155,12 +158,12 @@ def get_labels(imgshape, circle_data, r1, r2, r3):
 
 @st.cache
 def get_w(hi, li, minner, mouter):
-    #return np.log(np.mean(hi[mouter]) / np.mean(hi[minner])) / np.log(np.mean(li[mouter]) / np.mean(li[minner]))
+    # return np.log(np.mean(hi[mouter]) / np.mean(hi[minner])) / np.log(np.mean(li[mouter]) / np.mean(li[minner]))
     return np.log(np.mean(hi[minner]) / np.mean(hi[mouter])) / np.log(np.mean(li[minner]) / np.mean(li[mouter]))
 
 
 @st.cache
-def cnr(img, inner, outer, nlabels, feature_inds, feature_mats, feature_heights, mat, air_kerma):
+def cnr(img, inner, outer, nlabels, feature_inds_, feature_mats_, feature_heights, mat, air_kerma_):
     out = {"Feature Index": [],
            "CNR / √X": [],
            "Feature Material": [],
@@ -179,9 +182,9 @@ def cnr(img, inner, outer, nlabels, feature_inds, feature_mats, feature_heights,
         out["var outer"].append(np.var(img[om]))
         out["CNR / √X"].append(np.abs(out["mean inner"][-1] - out["mean outer"][-1]) /
                                np.sqrt(out["var inner"][-1] + out["var outer"][-1]) /
-                               np.sqrt(air_kerma))
-        out["Feature Index"].append(feature_inds[i])
-        out["Feature Material"].append(feature_mats[i])
+                               np.sqrt(air_kerma_))
+        out["Feature Index"].append(feature_inds_[i])
+        out["Feature Material"].append(feature_mats_[i])
         out["Feature Height (mm)"].append(feature_heights[i])
         out["DE Image"].append(mat)
     return pd.DataFrame(out)
@@ -193,7 +196,8 @@ def load_dcm(f):
     except (AttributeError, pydicom.errors.InvalidDicomError):
         f.seek(0)
         pydicom.filereader.read_preamble(f, False)
-        h = pydicom.filereader.read_dataset(f, is_implicit_VR=False, is_little_endian=True, stop_when=lambda tag, vr, val: tag.group > 2)
+        h = pydicom.filereader.read_dataset(f, is_implicit_VR=False, is_little_endian=True,
+                                            stop_when=lambda tag, vr, val: tag.group > 2)
         ts = h["TransferSyntaxUID"]
         if ts.value == pydicom.uid.ExplicitVRBigEndian:
             ivr = False
@@ -354,7 +358,6 @@ if __name__ == '__main__':
         cnr_data_fp.seek(0)
         st.download_button("Download CSV data", cnr_data_fp.read().encode("utf-8"),
                            file_name="desub.csv", mime="text/csv")
-
 
     st.markdown("Find source code on [github](https://github.com/stilley2/desubtraction_metric)")
     st.text("© 2021, Steven Tilley")
