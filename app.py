@@ -1,6 +1,9 @@
 import altair as alt
 import streamlit as st
+import io
 import pandas as pd
+import PIL.Image
+import PIL.TiffImagePlugin
 import pydicom
 import numpy as np
 import matplotlib
@@ -157,13 +160,31 @@ def get_w(hi, li, minner, mouter):
 
 
 @st.cache
-def cnr(img, inner, outer, nlabels):
-    cnr = []
+def cnr(img, inner, outer, nlabels, feature_inds, feature_mats, feature_heights, mat, air_kerma):
+    out = {"Feature Index": [],
+           "CNR / √X": [],
+           "Feature Material": [],
+           "Feature Height (mm)": [],
+           "DE Image": [],
+           "mean inner": [],
+           "mean outer": [],
+           "var inner": [],
+           "var outer": []}
     for i in range(nlabels):
         im = inner == i + 1
         om = outer == i + 1
-        cnr.append(np.abs(np.mean(img[im]) - np.mean(img[om])) / np.sqrt(np.var(img[im]) + np.var(img[om])))
-    return np.array(cnr)
+        out["mean inner"].append(np.mean(img[im]))
+        out["mean outer"].append(np.mean(img[om]))
+        out["var inner"].append(np.var(img[im]))
+        out["var outer"].append(np.var(img[om]))
+        out["CNR / √X"].append(np.abs(out["mean inner"][-1] - out["mean outer"][-1]) /
+                               np.sqrt(out["var inner"][-1] + out["var outer"][-1]) /
+                               np.sqrt(air_kerma))
+        out["Feature Index"].append(feature_inds[i])
+        out["Feature Material"].append(feature_mats[i])
+        out["Feature Height (mm)"].append(feature_heights[i])
+        out["DE Image"].append(mat)
+    return pd.DataFrame(out)
 
 
 def load_dcm(f):
@@ -188,6 +209,19 @@ def load_dcm(f):
         dataset = pydicom.filereader.read_dataset(f, is_implicit_VR=ivr, is_little_endian=le)
         dataset.file_meta = h
     return dataset
+
+
+@st.cache
+def to_tiff(img, pixel_spacing):
+    x = PIL.Image.fromarray(img)
+    ifd = PIL.TiffImagePlugin.ImageFileDirectory_v2()
+    ifd[282] = 10.0 / pixel_spacing[1]  # x resolution
+    ifd[283] = 10.0 / pixel_spacing[0]  # y resolution
+    ifd[296] = 3  # centimeters
+    fp = io.BytesIO()
+    x.save(fp, format="tiff", tiffinfo=ifd)
+    fp.seek(0)
+    return fp
 
 
 if __name__ == '__main__':
@@ -277,11 +311,15 @@ if __name__ == '__main__':
         ax = fig.add_subplot()
         ax.imshow(pmmaimg)
         ax.set_title("PMMA subtracted image")
+        pmmatiff = to_tiff(pmmaimg, high.ImagerPixelSpacing)
+        st.download_button("Download PMMA subtracted image", pmmatiff, file_name="pmma.tiff", mime="image/tiff")
         st.pyplot(fig)
         fig = Figure()
         ax = fig.add_subplot()
         ax.imshow(alimg)
         ax.set_title("Al subtracted image")
+        altiff = to_tiff(alimg, high.ImagerPixelSpacing)
+        st.download_button("Download Al subtracted image", altiff, file_name="al.tiff", mime="image/tiff")
         st.pyplot(fig)
 
         st.header("DE CNR")
@@ -289,34 +327,34 @@ if __name__ == '__main__':
         assert(np.all(trphantom[:, 2] == np.array([0.5, 1.0, 1.5, 2.0, 2.5, 10.0, 8.0, 6.0, 4.0, 2.0])))
         assert(np.all(trphantom[:, 3] == np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])))
         feature_inds = np.array([1, 2, 3, 4, 5, 5, 4, 3, 2, 1])
+        feature_mats = ["Al"] * 5 + ["PMMA"] * 5
 
-        alimg_cnr = cnr(alimg, inner_labels, outer_labels, trphantom.shape[0])
-        pmmaimg_cnr = cnr(pmmaimg, inner_labels, outer_labels, trphantom.shape[0])
-        alimg_cnr /= np.sqrt(air_kerma)
-        pmmaimg_cnr /= np.sqrt(air_kerma)
-        pmma_feature_inds = trphantom[:, 3] == 1
-        al_feature_inds = trphantom[:, 3] == 0
-        cnr_data = pd.DataFrame({"Feature Index": feature_inds,
-                                 "PMMA Image CNR / √X": pmmaimg_cnr,
-                                 "Al Image CNR / √X": alimg_cnr,
-                                 "Feature Material": ["Al"] * 5 + ["PMMA"] * 5,
-                                 "Feature Height (mm)": trphantom[:, 2]})
+        alimg_cnr_data = cnr(alimg, inner_labels, outer_labels, trphantom.shape[0],
+                             feature_inds, feature_mats, trphantom[:, 2], "Al", air_kerma)
+        pmmaimg_cnr_data = cnr(pmmaimg, inner_labels, outer_labels, trphantom.shape[0],
+                               feature_inds, feature_mats, trphantom[:, 2], "PMMA", air_kerma)
+        cnr_data = pd.DataFrame()
+        cnr_data = cnr_data.append(alimg_cnr_data)
+        cnr_data = cnr_data.append(pmmaimg_cnr_data)
 
         fig = alt.Chart(cnr_data).mark_line(point=True)
         fig = fig.encode(x=alt.X("Feature Index", type="ordinal", axis=alt.Axis(labelAngle=0)),
-                         y="PMMA Image CNR / √X", color="Feature Material",
-                         tooltip=["Feature Index", "PMMA Image CNR / √X",
-                                  "Feature Material", "Feature Height (mm)"])
-        fig = fig.configure_axis(labelFontSize=14, titleFontSize=16).configure_legend(labelFontSize=14, titleFontSize=16)
+                         y=alt.Y("CNR / √X", type="quantitative"),
+                         color=alt.Color("Feature Material", type="nominal"),
+                         row=alt.Row("DE Image", type="nominal", sort=["PMMA", "Al"]),
+                         tooltip=["Feature Index", "CNR / √X",
+                                  "Feature Material", "DE Image", "Feature Height (mm)"])
+        fig = fig.configure_axis(labelFontSize=14, titleFontSize=16)
+        fig = fig.configure_legend(labelFontSize=14, titleFontSize=16)
+        fig = fig.configure_headerRow(labelFontSize=14, titleFontSize=16)
         st.altair_chart(fig, use_container_width=True)
 
-        fig = alt.Chart(cnr_data).mark_line(point=True)
-        fig = fig.encode(x=alt.X("Feature Index", type="ordinal", axis=alt.Axis(labelAngle=0)),
-                         y="Al Image CNR / √X", color="Feature Material",
-                         tooltip = ["Feature Index", "PMMA Image CNR / √X",
-                                    "Feature Material", "Feature Height (mm)"])
-        fig = fig.configure_axis(labelFontSize=14, titleFontSize=16).configure_legend(labelFontSize=14, titleFontSize=16)
-        st.altair_chart(fig, use_container_width=True)
+        cnr_data_fp = io.StringIO()
+        cnr_data.to_csv(cnr_data_fp)
+        cnr_data_fp.seek(0)
+        st.download_button("Download CSV data", cnr_data_fp.read().encode("utf-8"),
+                           file_name="desub.csv", mime="text/csv")
+
 
     st.markdown("Find source code on [github](https://github.com/stilley2/desubtraction_metric)")
     st.text("© 2021, Steven Tilley")
