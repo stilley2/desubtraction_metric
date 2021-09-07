@@ -208,7 +208,6 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all):
         raise RuntimeError("Low and high images must have the same pixel spacing")
     if low_img.shape != high_img.shape:
         raise RuntimeError("Low and high images must have the same shape")
-    yield high.ImagerPixelSpacing
     mask_inner_fraction = 0.8
     mask_outer_fraction = 1.2
     mask_outer_fraction2 = 1.44
@@ -219,6 +218,7 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all):
     slices = tuple((slice(s, e) for s, e in zip(starts, stops)))
     high_img = high_img[slices]
     low_img = low_img[slices]
+    yield high.ImagerPixelSpacing, slices
     hough_centers = hough_wrapper(high_img, high.ImagerPixelSpacing[0])
     high_dt_img = quad_detrend(high_img, high.ImagerPixelSpacing[0], hough_centers)
     if quad_detrend_all:
@@ -273,7 +273,7 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all):
 def proc(high_data, low_data, air_kerma, quad_detrend_all):
     prociter = _proc(high_data, low_data, air_kerma, quad_detrend_all)
     out = {}
-    out["pixel_spacing"] = next(prociter)
+    out["pixel_spacing"], out["slices"] = next(prociter)
     next(prociter)
     out["high_img"], out["low_img"], out["hough_centers"] = next(prociter)
     out["trphantom"], out["trradious"] = next(prociter)

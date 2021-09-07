@@ -53,7 +53,7 @@ if __name__ == '__main__':
     if high_data_ is not None and low_data_ is not None and len(air_kerma_):
         air_kerma_ = float(air_kerma_)
         prociter = _proc(high_data_, low_data_, air_kerma_, quad_detrend_all_)
-        pixel_spacing_ = next(prociter)
+        pixel_spacing_, _ = next(prociter)
         high_dt_img_, hough_centers_ = next(prociter)
         if verbose:
             st.header("Quadratically detrended high image")
@@ -102,6 +102,7 @@ if __name__ == '__main__':
 
         st.header("DE CNR")
         st.text("Feature indexes are separate for each material and ordered by increasing height")
+        next(prociter)
         cnr_data_ = next(prociter)
 
         fig = alt.Chart(cnr_data_).mark_line(point=True)
