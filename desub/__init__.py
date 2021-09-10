@@ -282,8 +282,8 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all, pixel_spacing=None):
     yield cnr_data
 
 
-def proc(high_data, low_data, air_kerma, quad_detrend_all):
-    prociter = _proc(high_data, low_data, air_kerma, quad_detrend_all)
+def proc(high_data, low_data, air_kerma, quad_detrend_all, pixel_spacing=None):
+    prociter = _proc(high_data, low_data, air_kerma, quad_detrend_all, pixel_spacing=pixel_spacing)
     out = {}
     out["pixel_spacing"], out["slices"] = next(prociter)
     next(prociter)
