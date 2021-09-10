@@ -195,39 +195,51 @@ def load_dcm(f):
     return dataset
 
 
-def _proc(high_data, low_data, air_kerma, quad_detrend_all):
-    high = load_dcm(high_data)
-    high_img = high.pixel_array.astype(np.float64)
-    low = load_dcm(low_data)
-    low_img = low.pixel_array.astype(np.float64)
-    if high.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[1]:
-        raise RuntimeError("Anisotropic pixels not supported")
-    if low.ImagerPixelSpacing[0] != low.ImagerPixelSpacing[1]:
-        raise RuntimeError("Anisotropic pixels not supported")
-    if low.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[0]:
-        raise RuntimeError("Low and high images must have the same pixel spacing")
-    if low_img.shape != high_img.shape:
-        raise RuntimeError("Low and high images must have the same shape")
+def _proc(high_data, low_data, air_kerma, quad_detrend_all, pixel_spacing=None):
+    if isinstance(high_data, np.ndarray):
+        if not isinstance(low_data, np.ndarray):
+            raise ValueError("If high_data is a numpy array then low_data must also be a numpy array")
+        if pixel_spacing is None or len(pixel_spacing) != 2:
+            raise ValueError("If passing numpy arrays, pixel_spacing must be specified and must have length 2")
+        if pixel_spacing[0] != pixel_spacing[1]:
+            raise RuntimeError("Anisotropic pixels not supported")
+        high_img = high_data
+        low_img = low_data
+    else:
+        high = load_dcm(high_data)
+        high_img = high.pixel_array.astype(np.float64)
+        low = load_dcm(low_data)
+        low_img = low.pixel_array.astype(np.float64)
+        if high.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[1]:
+            raise RuntimeError("Anisotropic pixels not supported")
+        if low.ImagerPixelSpacing[0] != low.ImagerPixelSpacing[1]:
+            raise RuntimeError("Anisotropic pixels not supported")
+        if low.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[0]:
+            raise RuntimeError("Low and high images must have the same pixel spacing")
+        if low_img.shape != high_img.shape:
+            raise RuntimeError("Low and high images must have the same shape")
+        pixel_spacing = [high.ImagerPixelSpacing[0], high.ImagerPixelSpacing[1]]
+        del high, low
     mask_inner_fraction = 0.8
     mask_outer_fraction = 1.2
     mask_outer_fraction2 = 1.44
 
-    height_width = ROI / np.array(high.ImagerPixelSpacing)
+    height_width = ROI / np.array(pixel_spacing)
     starts = ((np.array(high_img.shape) - height_width) // 2).astype(int)
     stops = np.ceil(starts + height_width).astype(int)
     slices = tuple((slice(s, e) for s, e in zip(starts, stops)))
     high_img = high_img[slices]
     low_img = low_img[slices]
-    yield high.ImagerPixelSpacing, slices
-    hough_centers = hough_wrapper(high_img, high.ImagerPixelSpacing[0])
-    high_dt_img = quad_detrend(high_img, high.ImagerPixelSpacing[0], hough_centers)
+    yield pixel_spacing, slices
+    hough_centers = hough_wrapper(high_img, pixel_spacing[0])
+    high_dt_img = quad_detrend(high_img, pixel_spacing[0], hough_centers)
     if quad_detrend_all:
         high_img = high_dt_img
-        low_img = quad_detrend(low_img, low.ImagerPixelSpacing[0], hough_centers)
+        low_img = quad_detrend(low_img, pixel_spacing[0], hough_centers)
     yield high_dt_img, hough_centers
-    hough_centers = sort_circles(high_dt_img, high.ImagerPixelSpacing[0], hough_centers)
+    hough_centers = sort_circles(high_dt_img, pixel_spacing[0], hough_centers)
     yield high_img, low_img, hough_centers
-    trphantom, trradius = transform_phantom(hough_centers, read_phantom(), high.ImagerPixelSpacing[0])
+    trphantom, trradius = transform_phantom(hough_centers, read_phantom(), pixel_spacing[0])
     yield trphantom, trradius
 
     rad1 = trradius * mask_inner_fraction
