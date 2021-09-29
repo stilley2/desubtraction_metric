@@ -46,13 +46,14 @@ if __name__ == '__main__':
     matplotlib.use("SVG")
     matplotlib.rcParams["image.cmap"] = "Greys_r"
     high_data_ = st.sidebar.file_uploader("High energy image file", type=["dcm", "DCM"])
+    high2_data_ = st.sidebar.file_uploader("High energy image file 2", type=["dcm", "DCM"])
     low_data_ = st.sidebar.file_uploader("Low energy image file", type=["dcm", "DCM"])
-    quad_detrend_all_ = st.sidebar.checkbox("Quadratically detrend images prior to metric calculation")
+    low2_data_ = st.sidebar.file_uploader("Low energy image file 2", type=["dcm", "DCM"])
     verbose = st.sidebar.checkbox("Verbose")
     air_kerma_ = st.sidebar.text_input("Air Kerma")
-    if high_data_ is not None and low_data_ is not None and len(air_kerma_):
+    if all(tmp_data_ is not None for tmp_data_ in (high_data_, low_data_, high2_data_, low2_data_)) and len(air_kerma_):
         air_kerma_ = float(air_kerma_)
-        prociter = _proc(high_data_, low_data_, air_kerma_, quad_detrend_all_)
+        prociter = _proc(high_data_, low_data_, high2_data_, low2_data_, air_kerma_)
         pixel_spacing_, _ = next(prociter)
         high_dt_img_, hough_centers_ = next(prociter)
         if verbose:
@@ -81,16 +82,18 @@ if __name__ == '__main__':
             st.pyplot(fig)
 
         st.header("DE Images")
-        w_pmma_, w_al_ = next(prociter)
-        params = pd.DataFrame({"Material": ["Al", "PMMA"], "Subtraction parameter": [w_al_, w_pmma_]})
+        w_pmma_, w_al_, w2_pmma_, w2_al_ = next(prociter)
+        params = pd.DataFrame({"Al Subtraction Parameter": [w_al_, w2_al_], "PMMA Subtraction Parameter": [w_pmma_, w2_pmma_]})
         st.dataframe(data=params)
-        pmmaimg_, alimg_ = next(prociter)
+        pmmaimg_, alimg_, pmma2img_, al2img_ = next(prociter)
         fig = Figure()
         ax = fig.add_subplot()
         ax.imshow(pmmaimg_)
         ax.set_title("PMMA subtracted image")
         pmmatiff = to_tiff(pmmaimg_, pixel_spacing_)
         st.download_button("Download PMMA subtracted image", pmmatiff, file_name="pmma.tiff", mime="image/tiff")
+        pmma2tiff = to_tiff(pmma2img_, pixel_spacing_)
+        st.download_button("Download PMMA subtracted image 2", pmma2tiff, file_name="pmma2.tiff", mime="image/tiff")
         st.pyplot(fig)
         fig = Figure()
         ax = fig.add_subplot()
@@ -98,6 +101,8 @@ if __name__ == '__main__':
         ax.set_title("Al subtracted image")
         altiff = to_tiff(alimg_, pixel_spacing_)
         st.download_button("Download Al subtracted image", altiff, file_name="al.tiff", mime="image/tiff")
+        al2tiff = to_tiff(al2img_, pixel_spacing_)
+        st.download_button("Download Al subtracted image 2", al2tiff, file_name="al2.tiff", mime="image/tiff")
         st.pyplot(fig)
 
         st.header("DE CNR")

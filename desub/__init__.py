@@ -143,7 +143,7 @@ def get_w(hi, li, minner, mouter):
     return np.log(np.mean(hi[minner]) / np.mean(hi[mouter])) / np.log(np.mean(li[minner]) / np.mean(li[mouter]))
 
 
-def cnr(img, inner, outer, nlabels, feature_inds_, feature_mats_, feature_heights, mat, kerma):
+def cnr(img, img2, inner, outer, nlabels, feature_inds_, feature_mats_, feature_heights, mat, kerma):
     out = {"Feature Index": [],
            "CNR / √X": [],
            "Feature Material": [],
@@ -151,17 +151,21 @@ def cnr(img, inner, outer, nlabels, feature_inds_, feature_mats_, feature_height
            "DE Image": [],
            "mean inner": [],
            "mean outer": [],
-           "var inner": [],
-           "var outer": []}
+           "diff var inner": [],
+           "diff var outer": [],
+           "mean2 inner": [],
+           "mean2 outer": []}
     for i in range(nlabels):
         im = inner == i + 1
         om = outer == i + 1
         out["mean inner"].append(np.mean(img[im]))
         out["mean outer"].append(np.mean(img[om]))
-        out["var inner"].append(np.var(img[im]))
-        out["var outer"].append(np.var(img[om]))
-        out["CNR / √X"].append(np.abs(out["mean inner"][-1] - out["mean outer"][-1]) /
-                               np.sqrt(out["var inner"][-1] + out["var outer"][-1]) /
+        out["diff var inner"].append(np.var(img[im] - img2[im]))
+        out["diff var outer"].append(np.var(img[om] - img2[om]))
+        out["mean2 inner"].append(np.mean(img2[im]))
+        out["mean2 outer"].append(np.mean(img2[om]))
+        out["CNR / √X"].append(np.abs(out["mean inner"][-1] + out["mean2 inner"][-1] - out["mean outer"][-1] - out["mean2 outer"][-1]) /
+                               np.sqrt(out["diff var inner"][-1] + out["diff var outer"][-1]) / np.sqrt(2) /
                                np.sqrt(kerma))
         out["Feature Index"].append(feature_inds_[i])
         out["Feature Material"].append(feature_mats_[i])
@@ -195,31 +199,37 @@ def load_dcm(f):
     return dataset
 
 
-def _proc(high_data, low_data, air_kerma, quad_detrend_all, pixel_spacing=None):
+def _proc(high_data, low_data, high2_data, low2_data, air_kerma, pixel_spacing=None):
     if isinstance(high_data, np.ndarray):
-        if not isinstance(low_data, np.ndarray):
-            raise ValueError("If high_data is a numpy array then low_data must also be a numpy array")
+        if any(not isinstance(tmp_data, np.ndarray) for tmp_data in (low_data, high2_data, low2_data)):
+            raise ValueError("If high_data is a numpy array then all images must also be a numpy array")
         if pixel_spacing is None or len(pixel_spacing) != 2:
             raise ValueError("If passing numpy arrays, pixel_spacing must be specified and must have length 2")
         if pixel_spacing[0] != pixel_spacing[1]:
             raise RuntimeError("Anisotropic pixels not supported")
         high_img = high_data
         low_img = low_data
+        high2_img = high2_data
+        low2_img = low2_data
     else:
         high = load_dcm(high_data)
         high_img = high.pixel_array.astype(np.float64)
         low = load_dcm(low_data)
         low_img = low.pixel_array.astype(np.float64)
-        if high.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[1]:
-            raise RuntimeError("Anisotropic pixels not supported")
-        if low.ImagerPixelSpacing[0] != low.ImagerPixelSpacing[1]:
-            raise RuntimeError("Anisotropic pixels not supported")
-        if low.ImagerPixelSpacing[0] != high.ImagerPixelSpacing[0]:
-            raise RuntimeError("Low and high images must have the same pixel spacing")
-        if low_img.shape != high_img.shape:
-            raise RuntimeError("Low and high images must have the same shape")
+        high2 = load_dcm(high2_data)
+        high2_img = high2.pixel_array.astype(np.float64)
+        low2 = load_dcm(low2_data)
+        low2_img = low2.pixel_array.astype(np.float64)
+        for tmp in (high, low, high2, low2):
+            if tmp.ImagerPixelSpacing[0] != tmp.ImagerPixelSpacing[1]:
+                raise RuntimeError("Anisotropic pixels not supported")
+            if low.ImagerPixelSpacing[0] != tmp.ImagerPixelSpacing[0]:
+                raise RuntimeError("All images must have the same pixel spacing")
+        for tmp in (high_img, low_img, high2_img, low2_img):
+            if low_img.shape != tmp.shape:
+                raise RuntimeError("All images must have the same shape")
         pixel_spacing = [high.ImagerPixelSpacing[0], high.ImagerPixelSpacing[1]]
-        del high, low
+        del high, low, high2, low2
     mask_inner_fraction = 0.8
     mask_outer_fraction = 1.2
     mask_outer_fraction2 = 1.44
@@ -230,12 +240,11 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all, pixel_spacing=None):
     slices = tuple((slice(s, e) for s, e in zip(starts, stops)))
     high_img = high_img[slices]
     low_img = low_img[slices]
+    high2_img = high2_img[slices]
+    low2_img = low2_img[slices]
     yield pixel_spacing, slices
     hough_centers = hough_wrapper(high_img, pixel_spacing[0])
     high_dt_img = quad_detrend(high_img, pixel_spacing[0], hough_centers)
-    if quad_detrend_all:
-        high_img = high_dt_img
-        low_img = quad_detrend(low_img, pixel_spacing[0], hough_centers)
     yield high_dt_img, hough_centers
     hough_centers = sort_circles(high_dt_img, pixel_spacing[0], hough_centers)
     yield high_img, low_img, hough_centers
@@ -263,8 +272,16 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all, pixel_spacing=None):
                    inner_labels == AL_MID_INDEX + 1,
                    outer_labels == AL_MID_INDEX + 1)
     pmmaimg = high_img / low_img ** w_pmma
-    yield w_pmma, w_al
-    yield pmmaimg, alimg
+    w2_al = get_w(high2_img, low2_img,
+                 inner_labels == PMMA_MID_INDEX + 1,
+                 outer_labels == PMMA_MID_INDEX + 1)
+    al2img = high2_img / low2_img ** w2_al
+    w2_pmma = get_w(high2_img, low2_img,
+                   inner_labels == AL_MID_INDEX + 1,
+                   outer_labels == AL_MID_INDEX + 1)
+    pmma2img = high2_img / low2_img ** w2_pmma
+    yield w_pmma, w_al, w2_pmma, w2_al
+    yield pmmaimg, alimg, pmma2img, al2img
 
     assert (np.all(trphantom[:, 2] == np.array([0.5, 1.0, 1.5, 2.0, 2.5, 10.0, 8.0, 6.0, 4.0, 2.0])))
     assert (np.all(trphantom[:, 3] == np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])))
@@ -272,9 +289,9 @@ def _proc(high_data, low_data, air_kerma, quad_detrend_all, pixel_spacing=None):
     feature_mats = ["Al"] * 5 + ["PMMA"] * 5
     yield feature_inds, feature_mats
 
-    alimg_cnr_data = cnr(alimg, inner_labels, outer_labels, trphantom.shape[0],
+    alimg_cnr_data = cnr(alimg, al2img, inner_labels, outer_labels, trphantom.shape[0],
                          feature_inds, feature_mats, trphantom[:, 2], "Al", air_kerma)
-    pmmaimg_cnr_data = cnr(pmmaimg, inner_labels, outer_labels, trphantom.shape[0],
+    pmmaimg_cnr_data = cnr(pmmaimg, pmma2img, inner_labels, outer_labels, trphantom.shape[0],
                            feature_inds, feature_mats, trphantom[:, 2], "PMMA", air_kerma)
     cnr_data = pd.DataFrame()
     cnr_data = cnr_data.append(alimg_cnr_data)
@@ -291,8 +308,8 @@ def proc(high_data, low_data, air_kerma, quad_detrend_all, pixel_spacing=None):
     out["trphantom"], out["trradious"] = next(prociter)
     next(prociter)
     out["inner_labels"], out["outer_labels"] = next(prociter)
-    out["w_pmma"], out["w_al"] = next(prociter)
-    out["pmmaimg"], out["alimg"] = next(prociter)
+    out["w_pmma"], out["w_al"], out["w2_pmma"], out["w2_al"] = next(prociter)
+    out["pmmaimg"], out["alimg"], out["pmma2img"], out["al2img"] = next(prociter)
     out["feature_inds"], out["feature_mats"] = next(prociter)
     cnr_data = next(prociter)
     try:
