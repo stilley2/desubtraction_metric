@@ -243,10 +243,10 @@ def _proc(high_data, low_data, high2_data, low2_data, air_kerma, pixel_spacing=N
     high2_img = high2_img[slices]
     low2_img = low2_img[slices]
     yield pixel_spacing, slices
-    hough_centers = hough_wrapper(high_img, pixel_spacing[0])
-    high_dt_img = quad_detrend(high_img, pixel_spacing[0], hough_centers)
-    yield high_dt_img, hough_centers
-    hough_centers = sort_circles(high_dt_img, pixel_spacing[0], hough_centers)
+    hough_centers = hough_wrapper(low_img, pixel_spacing[0])
+    low_dt_img = quad_detrend(low_img, pixel_spacing[0], hough_centers)
+    yield low_dt_img, hough_centers
+    hough_centers = sort_circles(low_dt_img, pixel_spacing[0], hough_centers)
     yield high_img, low_img, hough_centers
     trphantom, trradius = transform_phantom(hough_centers, read_phantom(), pixel_spacing[0])
     yield trphantom, trradius

@@ -55,10 +55,10 @@ if __name__ == '__main__':
         air_kerma_ = float(air_kerma_)
         prociter = _proc(high_data_, low_data_, high2_data_, low2_data_, air_kerma_)
         pixel_spacing_, _ = next(prociter)
-        high_dt_img_, hough_centers_ = next(prociter)
+        low_dt_img_, hough_centers_ = next(prociter)
         if verbose:
-            st.header("Quadratically detrended high image")
-            st.pyplot(plot_circles(high_dt_img_, hough_centers_))
+            st.header("Quadratically detrended low image")
+            st.pyplot(plot_circles(low_dt_img_, hough_centers_))
         high_img_, _, hough_centers_ = next(prociter)
         if verbose:
             st.header("High energy image with detected circle centers")
