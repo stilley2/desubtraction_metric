@@ -9,7 +9,7 @@ import PIL.Image
 import PIL.TiffImagePlugin
 
 
-from desub import _proc
+from desub import _proc, __version__
 
 
 def to_tiff(img, pixel_spacing):

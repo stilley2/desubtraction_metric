@@ -1,0 +1,82 @@
+variables:
+  ${{ if eq(variables['Build.SourceBranchName'], 'master') }}:
+    Build_version: '1.0'  # CHANGE THE VERSION HERE!
+    
+######################################################################################
+### Do not edit anything below this line unless you are aware of the build process ###
+######################################################################################
+    
+  ${{ else }}:
+    Build_version: '0.0'    # This ensures that branches don't have official buildnumbers. Do not change!
+
+# If the build version hasn't changed, revision is increased by 1
+
+name: $(Build_version).$(Rev:r)
+
+trigger:
+- master
+
+pr:
+- master
+
+pool:
+  vmImage: 'windows-2019'
+
+strategy:
+  matrix:
+    Python37:
+      python.version: '3.7'
+
+steps:
+
+- task: PowerShell@2
+  inputs:
+    targetType: inline
+    script: "Set-Content -Path desub/VERSION -Value $(Build.BuildNumber)"
+  displayName: 'Set version file'
+
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '$(python.version)'
+  displayName: 'Use Python $(python.version)'
+
+- script: |
+    python -m pip install --upgrade pip
+    pip install build twine
+  displayName: 'Install build dependencies'
+
+- task: CmdLine@2
+  inputs:
+    script: 'python -m build --sdist'
+  displayName: 'build'
+
+- task: TwineAuthenticate@1
+  inputs:
+    artifactFeed: 'Taurus-Packages'
+
+- script: |
+    python -m twine upload -r Taurus-Packages --config-file $(PYPIRC_PATH) dist/*.tar.gz
+
+- task: InstallSSHKey@0
+  displayName: 'Add bitbucket SSH key from securefiles'
+  inputs:
+    knownHostsEntry: 'bitbucket.org,104.192.141.1 ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAubiN81eDcafrgMeLzaFPsw2kNvEcqTKl/VqLat/MaB33pZy0y3rJZtnqwR2qOOvbwKZYKiEO1O6VqNEBxKvJJelCq0dTXWT5pbO2gDXC6h6QDXCaHo6pOHGPUy+YBaGQRGuSusMEASYiWunYN0vCAI8QaXnWMXNMdFP3jHAJH0eDsoiGnLPBlBp4TNm6rYI74nMzgz3B9IikW4WVK+dc8KZJZWYjAuORU3jc1c/NPskD2ASinf8v3xnfXeukU0sJ5N6m5E8VLjObPEO+mN2t/FZTMZLiFqPWc/ALSqnMnnhwrNi2rbfg/rd/IpL8Le3pSBne8+seeFVBoGqzHM9yXw=='
+    sshKeySecureFile: 'bitbucket_azurepipelines_privatekey'
+    addEntryToConfig: true
+    configHostAlias: 'bitbucketssh'
+    configHostname: 'bitbucket.org'
+    configUser: 'git'
+
+- task: Bash@3
+  displayName: 'Tag the repo with the build number'
+  inputs:
+    targetType: 'inline'
+    script: |
+      # NOTE: this uses the SSH key previously added. HTTPs prompts a password and there's no task that automates this for bitbucket
+      git config user.email "noreply@kaimaging.com"
+      git config user.name "Azure Pipelines"
+      # Get the ssh address from the https address
+      repo_ssh_address="git@bitbucket.org:"$(git config --get remote.origin.url | awk -F 'org/' '{print $2}')
+      git remote add origin_ssh $repo_ssh_address
+      git tag -a "$(Build.BuildNumber)" -m "Tag created by Azure Pipelines after a successful build."
+      git push origin_ssh $(Build.BuildNumber)

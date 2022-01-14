@@ -7,11 +7,8 @@ import skimage
 import skimage.feature
 import skimage.transform
 
-try:
-    from . import _version
-    __version__ = _version.version
-except ImportError:
-    __version__ = "0.0.0"
+
+__version__ = (Path(__file__).parent / "VERSION").read_text().strip()
 
 
 ROI = 250  # mm
