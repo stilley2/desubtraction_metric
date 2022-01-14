@@ -305,7 +305,7 @@ def proc(high_data, low_data, high2_data, low2_data, air_kerma, pixel_spacing=No
     out["pixel_spacing"], out["slices"] = next(prociter)
     next(prociter)
     out["high_img"], out["low_img"], out["hough_centers"] = next(prociter)
-    out["trphantom"], out["trradious"] = next(prociter)
+    out["trphantom"], out["trradius"] = next(prociter)
     next(prociter)
     out["inner_labels"], out["outer_labels"] = next(prociter)
     out["w_pmma"], out["w_al"], out["w2_pmma"], out["w2_al"] = next(prociter)
