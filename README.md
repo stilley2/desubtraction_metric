@@ -32,10 +32,6 @@ data.
 
 ## Streamlit app
 
-### Heroku hosted
-
-This app is hosted using heroku [here](https://desubtraction.herokuapp.com/).
-
 ### Self host
 
 Self hosting is much faster.
