@@ -294,8 +294,7 @@ def _proc(high_data, low_data, high2_data, low2_data, air_kerma, pixel_spacing=N
     pmmaimg_cnr_data = cnr(pmmaimg, pmma2img, inner_labels, outer_labels, trphantom.shape[0],
                            feature_inds, feature_mats, trphantom[:, 2], "PMMA", air_kerma)
     cnr_data = pd.DataFrame()
-    cnr_data = cnr_data.append(alimg_cnr_data)
-    cnr_data = cnr_data.append(pmmaimg_cnr_data)
+    cnr_data = pd.concat((cnr_data, alimg_cnr_data, pmmaimg_cnr_data), ignore_index=True)
     yield cnr_data
 
 
